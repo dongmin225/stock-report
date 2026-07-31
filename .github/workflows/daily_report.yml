@@ -2,7 +2,7 @@ name: Daily Stock Report
 
 on:
   schedule:
-    - cron: '0 23 * * *'
+    - cron: '5 23 * * *'
   workflow_dispatch:
 
 permissions:
