@@ -160,7 +160,7 @@ def build_html_report(results):
 
 
 def push_to_github():
-    subprocess.run(["git", "add", "index.html"], check=True)
+    subprocess.run(["git", "add", "-f", "index.html"], check=True)
     subprocess.run(["git", "commit", "-m", f"리포트 업데이트 {datetime.today().strftime('%Y-%m-%d')}"], check=False)
     subprocess.run(["git", "push", "origin", "main"], check=True)
 
