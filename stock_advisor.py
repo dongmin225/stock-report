@@ -126,8 +126,9 @@ def get_channel_recent_videos(channel_id, hours=24, max_results=10):
 
 def get_transcript_text(video_id, max_chars=3000):
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["ko", "en"])
-        full_text = " ".join([t["text"] for t in transcript])
+        ytt_api = YouTubeTranscriptApi()
+        fetched = ytt_api.fetch(video_id, languages=["ko", "en"])
+        full_text = " ".join([snippet.text for snippet in fetched])
         return full_text[:max_chars]
     except Exception as e:
         print(f"    [디버그] 자막 추출 실패: {e}")
