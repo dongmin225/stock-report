@@ -65,17 +65,35 @@ def get_news(query, count=5):
     return news_list
 
 
-def get_channel_recent_videos(channel_id, hours=24, max_results=5):
-    """최근 N시간 이내 해당 채널에 올라온 영상 목록 (종목명 검색 없이 전체)"""
-    url = "https://www.googleapis.com/youtube/v3/search"
-    published_after = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+def get_uploads_playlist_id(channel_id):
+    """채널의 업로드 재생목록 ID 조회"""
+    url = "https://www.googleapis.com/youtube/v3/channels"
     params = {
         "key": YOUTUBE_API_KEY,
-        "channelId": channel_id,
+        "id": channel_id,
+        "part": "contentDetails",
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        items = response.json().get("items", [])
+    except Exception:
+        return None
+    if not items:
+        return None
+    return items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+
+def get_channel_recent_videos(channel_id, hours=24, max_results=10):
+    """업로드 재생목록 기반으로 최근 N시간 이내 영상 조회 (검색 인덱싱 지연 없음)"""
+    playlist_id = get_uploads_playlist_id(channel_id)
+    if not playlist_id:
+        return []
+
+    url = "https://www.googleapis.com/youtube/v3/playlistItems"
+    params = {
+        "key": YOUTUBE_API_KEY,
+        "playlistId": playlist_id,
         "part": "snippet",
-        "type": "video",
-        "order": "date",
-        "publishedAfter": published_after,
         "maxResults": max_results,
     }
     try:
@@ -84,9 +102,14 @@ def get_channel_recent_videos(channel_id, hours=24, max_results=5):
     except Exception:
         return []
 
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     videos = []
     for item in items:
-        video_id = item["id"]["videoId"]
+        published_str = item["snippet"]["publishedAt"]
+        published_dt = datetime.strptime(published_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        if published_dt < cutoff:
+            continue
+        video_id = item["snippet"]["resourceId"]["videoId"]
         title = item["snippet"]["title"]
         videos.append({
             "video_id": video_id,
