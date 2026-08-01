@@ -6,8 +6,9 @@ import subprocess
 import requests
 import yfinance as yf
 from pykrx import stock as krx_stock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from anthropic import Anthropic
+from youtube_transcript_api import YouTubeTranscriptApi
 
 # ==== 여기에 본인 키 값들을 입력하세요 ====
 NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID") or "PLACEHOLDER"
@@ -15,10 +16,16 @@ NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET") or "PLACEHOLDER"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or "PLACEHOLDER"
 KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY") or "PLACEHOLDER"
 KAKAO_REFRESH_TOKEN = os.environ.get("KAKAO_REFRESH_TOKEN") or "PLACEHOLDER"
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY") or "PLACEHOLDER"
 GITHUB_PAGES_URL = "https://dongmin225.github.io/stock-report/"  # 본인 주소로 확인!
 # ==========================================
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+YOUTUBE_CHANNELS = {
+    "소수몽키": "UCC3yfxS5qC6PCwDzetUuEWg",
+    "올랜도킴": "UCwSSqi-s0wcH6pJbH3YPZqQ",
+}
 
 
 def get_current_price(ticker):
@@ -58,7 +65,85 @@ def get_news(query, count=5):
     return news_list
 
 
-def get_ai_opinion(stock_name, profit_rate, news_list):
+def get_channel_recent_videos(channel_id, hours=24, max_results=5):
+    """최근 N시간 이내 해당 채널에 올라온 영상 목록 (종목명 검색 없이 전체)"""
+    url = "https://www.googleapis.com/youtube/v3/search"
+    published_after = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    params = {
+        "key": YOUTUBE_API_KEY,
+        "channelId": channel_id,
+        "part": "snippet",
+        "type": "video",
+        "order": "date",
+        "publishedAfter": published_after,
+        "maxResults": max_results,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        items = response.json().get("items", [])
+    except Exception:
+        return []
+
+    videos = []
+    for item in items:
+        video_id = item["id"]["videoId"]
+        title = item["snippet"]["title"]
+        videos.append({
+            "video_id": video_id,
+            "title": title,
+            "url": f"https://www.youtube.com/watch?v={video_id}"
+        })
+    return videos
+
+
+def get_transcript_text(video_id, max_chars=3000):
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["ko", "en"])
+        full_text = " ".join([t["text"] for t in transcript])
+        return full_text[:max_chars]
+    except Exception:
+        return None
+
+
+def collect_youtube_summary():
+    """두 채널의 최근 24시간 영상을 모아 자막 추출 + AI 시황 요약 생성"""
+    all_videos = []
+    for channel_name, channel_id in YOUTUBE_CHANNELS.items():
+        videos = get_channel_recent_videos(channel_id, hours=24)
+        for v in videos:
+            transcript = get_transcript_text(v["video_id"])
+            if transcript:
+                all_videos.append({
+                    "channel": channel_name,
+                    "title": v["title"],
+                    "url": v["url"],
+                    "transcript": transcript
+                })
+
+    if not all_videos:
+        return "(최근 24시간 내 새로 올라온 영상이 없습니다)", []
+
+    combined_text = "\n\n".join(
+        f"[{v['channel']}] {v['title']}\n내용: {v['transcript']}" for v in all_videos
+    )
+
+    prompt = f"""다음은 최근 24시간 동안 '소수몽키'와 '올랜도킴' 유튜브 채널에 올라온 영상 자막입니다.
+
+{combined_text}
+
+이 내용을 종합해서, 오늘의 미국/한국 증시 시황과 두 분이 언급한 주요 종목/이슈를 
+6~8문장으로 요약해줘. 특정 종목에 대한 매수/매도 의견을 언급했다면 그것도 포함해줘.
+마크다운 기호(*, # 등) 없이 순수 텍스트로만 답변해줘."""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=700,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return message.content[0].text.strip(), all_videos
+
+
+def get_ai_opinion(stock_name, profit_rate, news_list, youtube_summary):
     if news_list:
         news_text = "\n\n".join(
             f"제목: {n['title']}\n요약: {n['description']}" for n in news_list
@@ -73,8 +158,12 @@ def get_ai_opinion(stock_name, profit_rate, news_list):
 최근 뉴스 (제목+요약):
 {news_text}
 
-위 정보를 종합해서 매수/보유/매도 중 어떤 의견인지, 근거가 되는 뉴스 내용까지 포함해서
-4~6문장으로 답변해줘. 참고용 의견이라는 전제이며, 마크다운 기호(*, # 등) 없이 순수 텍스트로만 답변해줘."""
+오늘의 유튜브(소수몽키, 올랜도킴) 시황 요약:
+{youtube_summary}
+
+위 정보를 종합해서 매수/보유/매도 중 어떤 의견인지, 근거를 포함해서
+4~6문장으로 답변해줘. 유튜브 시황 요약이 이 종목과 직접 관련 없다면 굳이 언급하지 않아도 돼.
+참고용 의견이라는 전제이며, 마크다운 기호(*, # 등) 없이 순수 텍스트로만 답변해줘."""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
@@ -105,8 +194,12 @@ def get_verdict_emoji(profit_rate):
         return "⚪", "보합"
 
 
-def build_html_report(results):
+def build_html_report(results, youtube_summary, youtube_videos):
     today_str = datetime.today().strftime("%Y년 %m월 %d일")
+
+    yt_video_links = ""
+    for v in youtube_videos:
+        yt_video_links += f'<li><a href="{v["url"]}" target="_blank">▶️ [{v["channel"]}] {v["title"]}</a></li>'
 
     cards = ""
     for r in results:
@@ -115,10 +208,8 @@ def build_html_report(results):
         news_html = ""
         for n in r.get("news", []):
             news_html += f'''
-            <li>
-                <a href="{n['link']}" target="_blank">{n['title']}</a>
-                <p class="desc">{n['description']}</p>
-            </li>'''
+            <li><a href="{n['link']}" target="_blank">📰 {n['title']}</a>
+            <p class="desc">{n['description']}</p></li>'''
 
         rate_display = f"{r['profit_rate']:+.2f}%" if r["profit_rate"] is not None else "조회 실패"
         rate_color = "red" if (r["profit_rate"] or 0) < 0 else "green"
@@ -127,7 +218,8 @@ def build_html_report(results):
         <div class="card">
             <h2>{emoji} {r['name']} <span class="rate" style="color:{rate_color}">{rate_display}</span></h2>
             <p class="opinion">{r.get('opinion', '')}</p>
-            <ul class="news-list">{news_html}</ul>
+            <h3>관련 뉴스</h3>
+            <ul class="news-list">{news_html or "<li>없음</li>"}</ul>
         </div>'''
 
     html_content = f"""<!DOCTYPE html>
@@ -141,17 +233,28 @@ def build_html_report(results):
     h1 {{ font-size: 20px; color: #222; }}
     .card {{ background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }}
     .card h2 {{ font-size: 17px; margin: 0 0 8px 0; }}
+    .card h3 {{ font-size: 13px; color: #888; margin: 14px 0 6px 0; border-top: 1px solid #eee; padding-top: 10px; }}
     .rate {{ font-size: 15px; float: right; }}
     .opinion {{ font-size: 14px; line-height: 1.6; color: #333; white-space: pre-line; }}
-    .news-list {{ list-style: none; padding: 0; margin-top: 12px; border-top: 1px solid #eee; padding-top: 8px; }}
+    .news-list {{ list-style: none; padding: 0; margin: 0; }}
     .news-list li {{ margin-bottom: 8px; }}
     .news-list a {{ font-size: 13px; color: #1a73e8; text-decoration: none; }}
     .news-list .desc {{ font-size: 12px; color: #777; margin: 2px 0 0 0; }}
+    .yt-card {{ background: #fff8e1; border-radius: 12px; padding: 16px; margin-bottom: 16px; }}
+    .yt-card h2 {{ font-size: 16px; margin: 0 0 8px 0; }}
     .footer {{ font-size: 12px; color: #999; text-align: center; margin-top: 20px; }}
 </style>
 </head>
 <body>
 <h1>📊 {today_str} 포트폴리오 리포트</h1>
+
+<div class="yt-card">
+    <h2>🎥 오늘의 유튜브 시황 요약</h2>
+    <p class="opinion">{youtube_summary}</p>
+    <h3 style="font-size:13px;color:#888;margin-top:12px;">참고 영상</h3>
+    <ul class="news-list">{yt_video_links or "<li>최근 24시간 내 영상 없음</li>"}</ul>
+</div>
+
 {cards}
 <p class="footer">⚠️ 본 의견은 참고용이며, 실제 투자 결정은 본인의 판단과 책임 하에 이루어져야 합니다.</p>
 </body>
@@ -172,10 +275,7 @@ def send_kakao_message(text, link_url):
     template = {
         "object_type": "text",
         "text": text,
-        "link": {
-            "web_url": link_url,
-            "mobile_web_url": link_url
-        },
+        "link": {"web_url": link_url, "mobile_web_url": link_url},
         "button_title": "리포트 보기"
     }
     data = {"template_object": json.dumps(template, ensure_ascii=False)}
@@ -187,6 +287,10 @@ def main():
     with open("portfolio.csv", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         portfolio = list(reader)
+
+    print("유튜브 시황 수집 중...")
+    youtube_summary, youtube_videos = collect_youtube_summary()
+    print(f"유튜브 영상 {len(youtube_videos)}건 수집 완료")
 
     results = []
 
@@ -203,12 +307,12 @@ def main():
 
         profit_rate = (current_price - avg_price) / avg_price * 100
         news = get_news(name)
-        opinion = get_ai_opinion(name, profit_rate, news)
+        opinion = get_ai_opinion(name, profit_rate, news, youtube_summary)
 
         results.append({"name": name, "profit_rate": profit_rate, "opinion": opinion, "news": news})
         print(f"[{name}] {profit_rate:+.2f}% 처리 완료")
 
-    html_report = build_html_report(results)
+    html_report = build_html_report(results, youtube_summary, youtube_videos)
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(html_report)
     print("index.html 생성 완료")
