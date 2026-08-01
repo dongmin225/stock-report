@@ -66,7 +66,6 @@ def get_news(query, count=5):
 
 
 def get_uploads_playlist_id(channel_id):
-    """채널의 업로드 재생목록 ID 조회"""
     url = "https://www.googleapis.com/youtube/v3/channels"
     params = {
         "key": YOUTUBE_API_KEY,
@@ -84,7 +83,6 @@ def get_uploads_playlist_id(channel_id):
 
 
 def get_channel_recent_videos(channel_id, hours=24, max_results=10):
-    """업로드 재생목록 기반으로 최근 N시간 이내 영상 조회 (검색 인덱싱 지연 없음)"""
     playlist_id = get_uploads_playlist_id(channel_id)
     if not playlist_id:
         return []
@@ -129,7 +127,6 @@ def get_transcript_text(video_id, max_chars=3000):
 
 
 def collect_youtube_summary():
-    """두 채널의 최근 24시간 영상을 모아 자막 추출 + AI 시황 요약 생성"""
     all_videos = []
     for channel_name, channel_id in YOUTUBE_CHANNELS.items():
         videos = get_channel_recent_videos(channel_id, hours=24)
@@ -288,9 +285,10 @@ def build_html_report(results, youtube_summary, youtube_videos):
 def push_to_github():
     subprocess.run(["git", "add", "-f", "index.html"], check=True)
     subprocess.run(["git", "commit", "-m", f"리포트 업데이트 {datetime.today().strftime('%Y-%m-%d')}"], check=False)
-    # 원격에 새 커밋이 있으면 자동으로 받아오되, index.html 충돌 시 방금 만든 새 리포트를 우선시함
+    # 원격에 새 변경사항이 있으면 자동으로 받아오되, 충돌 시 방금 만든 새 리포트를 우선 채택
     subprocess.run(["git", "pull", "--no-edit", "-X", "ours", "origin", "main"], check=False)
     subprocess.run(["git", "push", "origin", "main"], check=True)
+
 
 def send_kakao_message(text, link_url):
     access_token = get_kakao_access_token()
