@@ -74,9 +74,7 @@ def get_uploads_playlist_id(channel_id):
     }
     try:
         response = requests.get(url, params=params, timeout=10)
-        data = response.json()
-        print(f"    [디버그] channels API 응답: {data}")
-        items = data.get("items", [])
+        items = response.json().get("items", [])
     except Exception as e:
         print(f"    [디버그] channels API 예외: {e}")
         return None
@@ -88,7 +86,6 @@ def get_uploads_playlist_id(channel_id):
 def get_channel_recent_videos(channel_id, hours=24, max_results=10):
     playlist_id = get_uploads_playlist_id(channel_id)
     if not playlist_id:
-        print(f"    [디버그] 업로드 재생목록 ID 조회 실패")
         return []
 
     url = "https://www.googleapis.com/youtube/v3/playlistItems"
@@ -106,12 +103,10 @@ def get_channel_recent_videos(channel_id, hours=24, max_results=10):
         return []
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-    print(f"    [디버그] 기준 시각(cutoff, UTC): {cutoff}")
     videos = []
     for item in items:
         published_str = item["snippet"]["publishedAt"]
         published_dt = datetime.strptime(published_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        print(f"    [디버그] 영상: {item['snippet']['title']} / 업로드: {published_dt} / 포함여부: {published_dt >= cutoff}")
         if published_dt < cutoff:
             continue
         video_id = item["snippet"]["resourceId"]["videoId"]
@@ -125,13 +120,14 @@ def get_channel_recent_videos(channel_id, hours=24, max_results=10):
 
 
 def get_transcript_text(video_id, max_chars=3000):
+    """youtube-transcript-api 최신(v1.x) 인스턴스 기반 문법 사용"""
     try:
         ytt_api = YouTubeTranscriptApi()
         fetched = ytt_api.fetch(video_id, languages=["ko", "en"])
         full_text = " ".join([snippet.text for snippet in fetched])
         return full_text[:max_chars]
     except Exception as e:
-        print(f"    [디버그] 자막 추출 실패: {e}")
+        print(f"    [디버그] 자막 추출 실패 ({video_id}): {e}")
         return None
 
 
@@ -155,7 +151,7 @@ def collect_youtube_summary():
                 print(f"    자막 추출 실패")
 
     if not all_videos:
-        return "(최근 24시간 내 새로 올라온 영상이 없습니다)", []
+        return "(최근 24시간 내 새로 올라온 영상이 없거나, 자막을 가져오지 못했습니다)", []
 
     combined_text = "\n\n".join(
         f"[{v['channel']}] {v['title']}\n내용: {v['transcript']}" for v in all_videos
