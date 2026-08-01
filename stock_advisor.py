@@ -130,15 +130,20 @@ def collect_youtube_summary():
     all_videos = []
     for channel_name, channel_id in YOUTUBE_CHANNELS.items():
         videos = get_channel_recent_videos(channel_id, hours=24)
+        print(f"[{channel_name}] 최근 24시간 내 영상 {len(videos)}건 발견")
         for v in videos:
+            print(f"  - {v['title']} ({v['url']})")
             transcript = get_transcript_text(v["video_id"])
             if transcript:
+                print(f"    자막 추출 성공 ({len(transcript)}자)")
                 all_videos.append({
                     "channel": channel_name,
                     "title": v["title"],
                     "url": v["url"],
                     "transcript": transcript
                 })
+            else:
+                print(f"    자막 추출 실패")
 
     if not all_videos:
         return "(최근 24시간 내 새로 올라온 영상이 없습니다)", []
@@ -161,7 +166,6 @@ def collect_youtube_summary():
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text.strip(), all_videos
-
 
 def get_ai_opinion(stock_name, profit_rate, news_list, youtube_summary):
     if news_list:
