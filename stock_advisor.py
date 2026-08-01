@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from anthropic import Anthropic
 from youtube_transcript_api import YouTubeTranscriptApi
 
+
 # ==== 여기에 본인 키 값들을 입력하세요 ====
 NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID") or "PLACEHOLDER"
 NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET") or "PLACEHOLDER"
@@ -17,13 +18,13 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or "PLACEHOLDER"
 KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY") or "PLACEHOLDER"
 KAKAO_REFRESH_TOKEN = os.environ.get("KAKAO_REFRESH_TOKEN") or "PLACEHOLDER"
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY") or "PLACEHOLDER"
+SUPADATA_API_KEY = os.environ.get("SUPADATA_API_KEY") or "PLACEHOLDER"
 GITHUB_PAGES_URL = "https://dongmin225.github.io/stock-report/"  # 본인 주소로 확인!
 # ==========================================
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 YOUTUBE_CHANNELS = {
-    "소수몽키": "UCC3yfxS5qC6PCwDzetUuEWg",
     "올랜도킴": "UCwSSqi-s0wcH6pJbH3YPZqQ",
 }
 
@@ -120,11 +121,18 @@ def get_channel_recent_videos(channel_id, hours=24, max_results=10):
 
 
 def get_transcript_text(video_id, max_chars=3000):
-    """youtube-transcript-api 최신(v1.x) 인스턴스 기반 문법 사용"""
+    """Supadata API 사용 (GitHub Actions 같은 클라우드 IP에서도 안정적으로 작동)"""
+    url = "https://api.supadata.ai/v1/transcript"
+    headers = {"x-api-key": SUPADATA_API_KEY}
+    params = {"url": f"https://youtu.be/{video_id}"}
     try:
-        ytt_api = YouTubeTranscriptApi()
-        fetched = ytt_api.fetch(video_id, languages=["ko", "en"])
-        full_text = " ".join([snippet.text for snippet in fetched])
+        response = requests.get(url, headers=headers, params=params, timeout=20)
+        data = response.json()
+        segments = data.get("content", [])
+        if not segments:
+            print(f"    [디버그] Supadata 응답에 자막 없음: {data}")
+            return None
+        full_text = " ".join(seg.get("text", "") for seg in segments)
         return full_text[:max_chars]
     except Exception as e:
         print(f"    [디버그] 자막 추출 실패 ({video_id}): {e}")
