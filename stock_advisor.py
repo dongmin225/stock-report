@@ -288,8 +288,9 @@ def build_html_report(results, youtube_summary, youtube_videos):
 def push_to_github():
     subprocess.run(["git", "add", "-f", "index.html"], check=True)
     subprocess.run(["git", "commit", "-m", f"리포트 업데이트 {datetime.today().strftime('%Y-%m-%d')}"], check=False)
+    # 원격에 새 커밋이 있으면 자동으로 받아오되, index.html 충돌 시 방금 만든 새 리포트를 우선시함
+    subprocess.run(["git", "pull", "--no-edit", "-X", "ours", "origin", "main"], check=False)
     subprocess.run(["git", "push", "origin", "main"], check=True)
-
 
 def send_kakao_message(text, link_url):
     access_token = get_kakao_access_token()
