@@ -175,7 +175,7 @@ def collect_youtube_summary():
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=700,
+        max_tokens=1200,
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text.strip(), all_videos
@@ -205,7 +205,7 @@ def get_ai_opinion(stock_name, profit_rate, news_list, youtube_summary):
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=500,
+        max_tokens=900,
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text.strip()
