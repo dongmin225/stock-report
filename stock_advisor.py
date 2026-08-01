@@ -74,8 +74,11 @@ def get_uploads_playlist_id(channel_id):
     }
     try:
         response = requests.get(url, params=params, timeout=10)
-        items = response.json().get("items", [])
-    except Exception:
+        data = response.json()
+        print(f"    [디버그] channels API 응답: {data}")
+        items = data.get("items", [])
+    except Exception as e:
+        print(f"    [디버그] channels API 예외: {e}")
         return None
     if not items:
         return None
@@ -85,6 +88,7 @@ def get_uploads_playlist_id(channel_id):
 def get_channel_recent_videos(channel_id, hours=24, max_results=10):
     playlist_id = get_uploads_playlist_id(channel_id)
     if not playlist_id:
+        print(f"    [디버그] 업로드 재생목록 ID 조회 실패")
         return []
 
     url = "https://www.googleapis.com/youtube/v3/playlistItems"
@@ -97,14 +101,17 @@ def get_channel_recent_videos(channel_id, hours=24, max_results=10):
     try:
         response = requests.get(url, params=params, timeout=10)
         items = response.json().get("items", [])
-    except Exception:
+    except Exception as e:
+        print(f"    [디버그] playlistItems API 예외: {e}")
         return []
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    print(f"    [디버그] 기준 시각(cutoff, UTC): {cutoff}")
     videos = []
     for item in items:
         published_str = item["snippet"]["publishedAt"]
         published_dt = datetime.strptime(published_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        print(f"    [디버그] 영상: {item['snippet']['title']} / 업로드: {published_dt} / 포함여부: {published_dt >= cutoff}")
         if published_dt < cutoff:
             continue
         video_id = item["snippet"]["resourceId"]["videoId"]
@@ -122,7 +129,8 @@ def get_transcript_text(video_id, max_chars=3000):
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["ko", "en"])
         full_text = " ".join([t["text"] for t in transcript])
         return full_text[:max_chars]
-    except Exception:
+    except Exception as e:
+        print(f"    [디버그] 자막 추출 실패: {e}")
         return None
 
 
@@ -166,6 +174,7 @@ def collect_youtube_summary():
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text.strip(), all_videos
+
 
 def get_ai_opinion(stock_name, profit_rate, news_list, youtube_summary):
     if news_list:
@@ -287,15 +296,12 @@ def build_html_report(results, youtube_summary, youtube_videos):
 
 
 def push_to_github():
-    # 1. 원격의 최신 상태를 가져오기
     subprocess.run(["git", "fetch", "origin", "main"], check=True)
-    # 2. 로컬 브랜치 포인터를 원격과 맞추되, 방금 만든 index.html 등 작업 파일은 그대로 유지
     subprocess.run(["git", "reset", "--mixed", "origin/main"], check=True)
-    # 3. 새로 생성된 index.html을 추가해서 커밋
     subprocess.run(["git", "add", "-f", "index.html"], check=True)
     subprocess.run(["git", "commit", "-m", f"리포트 업데이트 {datetime.today().strftime('%Y-%m-%d')}"], check=False)
-    # 4. push (이제 항상 원격 기준으로 최신이라 충돌 없이 성공함)
     subprocess.run(["git", "push", "origin", "main"], check=True)
+
 
 def send_kakao_message(text, link_url):
     access_token = get_kakao_access_token()
