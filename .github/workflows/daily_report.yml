@@ -1,8 +1,6 @@
 name: Daily Stock Report
 
 on:
-  schedule:
-    - cron: '5 23 * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [daily-trigger]
@@ -13,6 +11,9 @@ permissions:
 jobs:
   report:
     runs-on: ubuntu-latest
+    concurrency:
+      group: daily-stock-report
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
